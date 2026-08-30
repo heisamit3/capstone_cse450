@@ -1,0 +1,138 @@
+// This is your Prisma schema file.
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model: teachers and students
+model User {
+  id                Int       @id @default(autoincrement())
+  email             String    @unique @db.VarChar(255)
+  password_hash     String    @db.Text
+  role              Role      // teacher or student
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  created_assignments Assignment[]
+  submissions         Submission[]
+  grades              Grade[]
+
+  @@map("users")
+}
+
+enum Role {
+  teacher
+  student
+}
+
+// Assignment: a set of questions created by a teacher
+model Assignment {
+  id                Int       @id @default(autoincrement())
+  teacher_id        Int
+  title             String    @db.VarChar(255)
+  description       String?   @db.Text
+  total_marks       Int       @db.SmallInt
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  teacher           User      @relation(fields: [teacher_id], references: [id], onDelete: Cascade)
+  questions         Question[]
+  grades            Grade[]
+  submissions       Submission[]
+
+  @@map("assignments")
+}
+
+// Question: individual question within an assignment
+model Question {
+  id                Int       @id @default(autoincrement())
+  assignment_id     Int
+  question_text     String    @db.Text
+  marks             Int       @db.SmallInt
+  question_type     QuestionType // mcq, short_answer, essay
+  model_answer      String    @db.Text
+  rubric            String?   @db.Text // grading rubric/criteria
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  assignment        Assignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  answers           Answer[]
+
+  @@map("questions")
+}
+
+enum QuestionType {
+  mcq
+  short_answer
+  essay
+}
+
+// Submission: a student's answers to an assignment
+model Submission {
+  id                Int       @id @default(autoincrement())
+  assignment_id     Int
+  student_id        Int
+  submitted_at      DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  assignment        Assignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  student           User       @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  answers           Answer[]
+  grades            Grade[]
+
+  @@map("submissions")
+}
+
+// Answer: individual answer to a question
+model Answer {
+  id                Int       @id @default(autoincrement())
+  submission_id     Int
+  question_id       Int
+  answer_text       String    @db.Text
+  answer_image_path String?   @db.Text
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  submission        Submission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+  question          Question   @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  @@map("answers")
+}
+
+// Grade: the score for a submission
+model Grade {
+  id                Int       @id @default(autoincrement())
+  assignment_id     Int
+  submission_id     Int
+  student_id        Int
+  obtained_marks    Int       @db.SmallInt
+  feedback          String?   @db.Text
+  confidence        Float?    // 0-1: how confident was the model (nullable, teacher override has no confidence)
+  graded_by         GradingSource // local_model, frontier_api, teacher_override
+  graded_at         DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  assignment        Assignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  submission        Submission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+  student           User       @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@map("grades")
+}
+
+enum GradingSource {
+  local_model       // graded by on-device model on phone
+  frontier_api      // graded by Claude/GPT-4 via backend
+  teacher_override  // teacher manually graded
+}

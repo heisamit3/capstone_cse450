@@ -67,6 +67,26 @@ adb shell ls -l /data/local/tmp/llm/
 LiteRT-LM tends to abort rather than throw on one. §3.6 and §3.8 cover which model
 to choose and why.
 
+**Where the three files came from is not recorded — UNVERIFIED.** Nothing in
+either repo names a URL, a repo, a download script or even a comment saying where
+they were obtained: searched this pass across every `.kt`, `.kts`, `.md`, `.py`,
+`.ts`, `.sh`, `.ps1`, `.toml` and `.txt` in both repos and the parent folder, and
+across the git history of deleted files. `ModelSpec.kt` names the files and their
+sizes and says nothing about their origin. What the code does establish is that
+they are Google's **LiteRT-LM `.litertlm`** format, which is a conversion target
+rather than a format the model authors publish — so all three are community
+conversions of LLaVA-OneVision 0.5B, Qwen2-VL 2B and Gemma 3 1B IT int4. The only
+identity check that exists is the byte count: `ModelSpec` records
+**`LLAVA_OV_05B` = 829,262,144 bytes** and **`GEMMA3_1B` = 584,417,280**, and a
+download whose size does not match exactly is the wrong file — a different quant,
+a different conversion, or a truncated transfer — which `createEngine()` refuses
+in Kotlin before the native library sees it. `QWEN2_VL_2B` carries no such figure;
+§3.6 covers what that costs you.
+
+**Confirm the source with me before spending time on it** — the exact build was
+never written down, and hunting for a matching conversion by trial and error is
+slower than asking.
+
 **Grading currently runs on Qwen and produces partial results with confidence
 0.0 — read §3.8 before scanning anything.**
 
@@ -711,6 +731,62 @@ pushing Qwen, compare `adb shell ls -l` against 1,784,096,288 by eye.
 Verify from inside the app: **Home → "Model" → "Check model file"**. It dumps every
 `ModelFileStatus` field plus a `diagnosis` string naming the likely cause and the
 exact adb command that fixes it. Then **"Load engine"**.
+
+### Where these three files come from — UNVERIFIED
+
+**No file in either repo records a download source.** No URL, no repo name, no
+fetch script, no comment — searched across every `.kt`, `.kts`, `.md`, `.py`,
+`.ts`, `.sh`, `.ps1`, `.toml` and `.txt` in `Capstone_Android`, `ASC_Capstone`
+and the parent folder, plus the git history of deleted files. `ModelSpec.kt` is
+the only file that names them at all, and it records `fileName`, `approxSizeMb`
+and `expectedBytes` without saying where any of it was obtained. Treat everything
+in this subsection as inference from the code, not a citation.
+
+What the code does establish:
+
+- **They are Google's LiteRT-LM `.litertlm` format**, not upstream model
+  releases. `app/build.gradle.kts` pulls
+  `com.google.ai.edge.litertlm:litertlm-android:0.16.1`, and `EngineConfig`
+  takes `modelPath` pointing at a `.litertlm` bundle. That format is a
+  conversion target — LLaVA, Qwen and Google's own Gemma repos publish weights,
+  not `.litertlm` — so all three of these are **community conversions**:
+  LLaVA-OneVision 0.5B, Qwen2-VL 2B, and Gemma 3 1B IT at int4.
+- **The byte count is what identifies the correct build.** `ModelSpec` records
+  an exact `expectedBytes` for two of the three:
+
+  | Spec | `expectedBytes` |
+  |---|---:|
+  | `LLAVA_OV_05B` | **829,262,144** |
+  | `GEMMA3_1B` | **584,417,280** |
+  | `QWEN2_VL_2B` | **null** |
+
+  A download whose size does not match those figures exactly is **the wrong
+  file** — a different quantisation, a different conversion of the same model,
+  or a transfer that did not finish. For those two entries that is caught in
+  Kotlin: `createEngine()` fails `status.sizeMatchesExpected` and throws before
+  the native library is ever handed the path. The check is worth as much as the
+  number, so do not "fix" a mismatch by editing `expectedBytes`.
+
+**`QWEN2_VL_2B` has `expectedBytes = null`, so nothing verifies it.** The size
+check is skipped for that entry entirely — only the non-empty check applies — and
+the copy on this machine is 1,784,096,288 bytes purely as an `ls -l` observation,
+not as a published figure the code enforces. The failure mode this leaves open is
+the ugly one: a wrong or truncated Qwen file is still a perfectly openable file,
+and native LiteRT-LM tends to **abort the process** on it rather than raise
+anything Kotlin can catch. The app dies with no exception and no message.
+
+So after pushing Qwen, check the size by hand:
+
+```
+adb shell ls -l /data/local/tmp/llm/Qwen2-VL-2B.litertlm
+```
+
+and compare it against the size of the file you pushed from. They must be
+identical to the byte.
+
+**Confirm the source with me before spending time on it.** The exact build was
+never written down, so working backwards from a byte count to a matching
+conversion is guesswork — ask first rather than downloading candidates.
 
 ## 3.7 Getting a test image onto the device
 

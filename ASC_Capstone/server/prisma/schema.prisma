@@ -1,0 +1,196 @@
+// This is your Prisma schema file.
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model: teachers and students
+model User {
+  id                Int       @id @default(autoincrement())
+  email             String    @unique @db.VarChar(255)
+  password_hash     String    @db.Text
+  role              Role      // teacher or student
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  created_assignments Assignment[]
+  submissions         Submission[]
+  grades              Grade[]
+
+  @@map("users")
+}
+
+enum Role {
+  teacher
+  student
+}
+
+// Assignment: a set of questions created by a teacher
+model Assignment {
+  id                Int       @id @default(autoincrement())
+  teacher_id        Int
+  title             String    @db.VarChar(255)
+  description       String?   @db.Text
+  total_marks       Int       @db.SmallInt
+  // The teacher worksheet system's "question" is this system's assignment.
+  // Null for every assignment created through POST /api/assignments; set only
+  // by the import route. Opaque uuid4 string minted by the teacher server.
+  external_question_id String? @db.VarChar(64)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  teacher           User      @relation(fields: [teacher_id], references: [id], onDelete: Cascade)
+  questions         Question[]
+  grades            Grade[]
+  submissions       Submission[]
+  layout            Layout?
+
+  // Scoped, not global: two teachers may independently import the same external
+  // question. Also the constraint that makes re-import detection well defined -
+  // at most one assignment per (teacher, external question), so the import route
+  // can find the previous import instead of guessing. Postgres treats NULLs as
+  // distinct, so locally created assignments are unaffected.
+  @@unique([teacher_id, external_question_id])
+  @@map("assignments")
+}
+
+// Question: individual question within an assignment
+model Question {
+  id                Int       @id @default(autoincrement())
+  assignment_id     Int
+  question_text     String    @db.Text
+  marks             Int       @db.SmallInt
+  question_type     QuestionType // mcq, short_answer, essay
+  model_answer      String    @db.Text
+  rubric            String?   @db.Text // grading rubric/criteria
+  // The teacher worksheet system's "answer box" is this system's question.
+  // Null for every locally created question; set only by the import route.
+  external_answer_box_id String? @db.VarChar(64)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  assignment        Assignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  answers           Answer[]
+
+  // The join key is the PAIR, never the bare box id. On the teacher side
+  // answer_box.id is a GLOBAL primary key today, so bare ids happen to be
+  // unique - but only because a collision crashes his insert rather than
+  // coexisting. If his broken clone route is ever fixed with a composite PK
+  // (question_id, id), bare box ids stop being unique and any single-column
+  // foreign key here starts joining across questions silently.
+  // See INTEGRATION_AUDIT.md 2.5.
+  @@unique([assignment_id, external_answer_box_id])
+  @@map("questions")
+}
+
+enum QuestionType {
+  mcq
+  short_answer
+  essay
+}
+
+// Submission: a student's answers to an assignment
+model Submission {
+  id                Int       @id @default(autoincrement())
+  assignment_id     Int
+  student_id        Int
+  submitted_at      DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  assignment        Assignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  student           User       @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  answers           Answer[]
+  grades            Grade[]
+
+  @@map("submissions")
+}
+
+// Answer: individual answer to a question
+model Answer {
+  id                Int       @id @default(autoincrement())
+  submission_id     Int
+  question_id       Int
+  answer_text       String    @db.Text
+  answer_image_path String?   @db.Text
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  submission        Submission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+  question          Question   @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  @@map("answers")
+}
+
+// Grade: the score for a submission
+model Grade {
+  id                Int       @id @default(autoincrement())
+  assignment_id     Int
+  submission_id     Int
+  student_id        Int
+  obtained_marks    Int       @db.SmallInt
+  feedback          String?   @db.Text
+  confidence        Float?    // 0-1: how confident was the model (nullable, teacher override has no confidence)
+  graded_by         GradingSource // local_model, frontier_api, teacher_override
+  graded_at         DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  assignment        Assignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  submission        Submission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+  student           User       @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@map("grades")
+}
+
+enum GradingSource {
+  local_model       // graded by on-device model on phone
+  frontier_api      // graded by Claude/GPT-4 via backend
+  teacher_override  // teacher manually graded
+}
+
+// Layout: the printed-page geometry for one imported assignment.
+//
+// One row per Assignment, 1:1. Captured once at import and never recomputed:
+// on the teacher side bbox, page_index and the box ids are written exactly once
+// (at finalize) and every mutation path out of "finalized" is closed, so the
+// geometry is immutable for the lifetime of the row. Storing it here means the
+// app never has to re-fetch the teacher server and trust that nothing moved.
+//
+// The Android client reads this and never computes geometry of its own.
+model Layout {
+  id                Int       @id @default(autoincrement())
+  assignment_id     Int       @unique
+  // Canonical page size in pixels, as served by the teacher API.
+  page_w_px         Int
+  page_h_px         Int
+  // ArUco dictionary name, e.g. "DICT_4X4_50". Denormalised out of `markers`
+  // so it is queryable without unpacking JSON.
+  aruco_dict        String    @db.VarChar(64)
+  // { aruco_dict, marker_size_px, marker_margin_px, centres: {"0":[x,y],...},
+  //   source: "served" | "computed_from_constants" }
+  markers           Json
+  // The teacher API's answer_boxes[] verbatim, in served array order:
+  // [{ id, label, points, bbox: [x,y,w,h] | null, page_index, order_index }]
+  answer_boxes      Json
+  // Bumped when the shape written into `markers` / `answer_boxes` changes, so a
+  // client can refuse a layout it does not understand.
+  layout_version    Int       @default(1)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  // Relations
+  assignment        Assignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+
+  @@map("layouts")
+}

@@ -1,0 +1,27 @@
+# Parent folder. Capstone_Android/ and ASC_Capstone/ are separate git roots with
+# their own .gitignore files; nothing here reaches inside them.
+
+# ---- Model weights ---------------------------------------------------------
+# LLaVA-OneVision-0.5B (810 MB), Qwen2-VL-2B (1.7 GB), gemma3-1b-it-int4 (570 MB).
+*.litertlm
+
+# ---- Stray PDFs and images -------------------------------------------------
+# Printed worksheets and annotated screenshots accumulate here during testing.
+# Anchored to the top level on purpose: an unanchored *.png would also match
+# extractor/src/test/resources/sample/sample_page.png and the launcher icons if
+# this folder ever became one repo.
+/*.pdf
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+/*.heic
+
+# ---- Local caches / IDE ----------------------------------------------------
+.cache/
+.idea/
+*.iml
+
+# ---- OS cruft --------------------------------------------------------------
+Thumbs.db
+.DS_Store

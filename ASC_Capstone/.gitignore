@@ -1,0 +1,39 @@
+# ASC_Capstone — Node + Express + Prisma + PostgreSQL (the server lives in server/).
+# This file is self-contained. The parent folder's .gitignore does NOT apply here:
+# ASC_Capstone is its own git root.
+
+# ---- Dependencies ----------------------------------------------------------
+node_modules/
+# package-lock.json is intentionally NOT ignored — it pins the install.
+
+# ---- Build output ----------------------------------------------------------
+dist/
+
+# ---- Secrets ---------------------------------------------------------------
+# The real .env holds DATABASE_URL and JWT_SECRET. .env.example is the template
+# and must stay tracked.
+.env
+.env.*
+!.env.example
+
+# ---- Logs ------------------------------------------------------------------
+*.log
+
+# ---- Student submission images ---------------------------------------------
+# submission.routes.ts writes to path.resolve(process.cwd(), "uploads", "answers")
+# and app.ts serves /uploads from path.resolve(process.cwd(), "uploads"), so the
+# directory lands wherever the process was started from. Both plausible cwds are
+# covered: the repo root and server/ (which is where `npm run dev` is run).
+/uploads/
+/server/uploads/
+
+# ---- OS cruft --------------------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# ---- Deliberately TRACKED --------------------------------------------------
+# The migration history must ship: `prisma migrate deploy` replays it to build
+# the schema on a fresh database, and 20260830120000_teacher_worksheet_join is
+# what creates the layouts table and the two composite unique indexes.
+!server/prisma/migrations/
+!server/prisma/migrations/**
